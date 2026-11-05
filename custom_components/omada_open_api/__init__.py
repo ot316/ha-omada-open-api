@@ -74,6 +74,7 @@ from .coordinator import (
     OmadaWanSpeedTestCoordinator,
 )
 from .devices import normalize_site_id
+from .services import async_get_loaded_entry, async_setup_services
 from .types import OmadaConfigEntry, OmadaRuntimeData
 
 if TYPE_CHECKING:
@@ -105,29 +106,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     # Register diagnostic service globally (action-setup rule)
     async def debug_ssid_switches_service(call: ServiceCall) -> None:
         """Service to dump SSID switch diagnostic information."""
-        config_entry_id = call.data.get("config_entry_id")
-        if not config_entry_id:
-            # Documented fallback: use the first loaded Omada entry.
-            loaded = hass.config_entries.async_loaded_entries(DOMAIN)
-            if not loaded:
-                raise ServiceValidationError(
-                    translation_domain=DOMAIN,
-                    translation_key="no_loaded_entry",
-                )
-            config_entry_id = loaded[0].entry_id
-        target_entry = hass.config_entries.async_get_entry(config_entry_id)
-        if not target_entry or target_entry.domain != DOMAIN:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="config_entry_not_found",
-                translation_placeholders={"config_entry_id": config_entry_id},
-            )
-        if target_entry.state is not ConfigEntryState.LOADED:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="config_entry_not_loaded",
-                translation_placeholders={"config_entry_id": config_entry_id},
-            )
+        target_entry = async_get_loaded_entry(hass, call.data.get("config_entry_id"))
+        config_entry_id = target_entry.entry_id
         runtime_data: OmadaRuntimeData = target_entry.runtime_data
         coordinators = runtime_data.coordinators
         has_write_access = runtime_data.has_write_access
@@ -173,6 +153,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         "debug_ssid_switches",
         debug_ssid_switches_service,
     )
+    async_setup_services(hass)
     return True
 
 

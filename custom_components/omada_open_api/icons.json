@@ -377,5 +377,16 @@
                 "default": "mdi:speedometer"
             }
         }
+    },
+    "services": {
+        "debug_ssid_switches": {
+            "service": "mdi:bug-outline"
+        },
+        "track_clients": {
+            "service": "mdi:account-plus-outline"
+        },
+        "untrack_clients": {
+            "service": "mdi:account-minus-outline"
+        }
     }
 }

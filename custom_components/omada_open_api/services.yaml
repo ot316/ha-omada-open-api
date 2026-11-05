@@ -6,3 +6,38 @@ debug_ssid_switches:
       selector:
         config_entry:
           integration: omada_open_api
+
+track_clients:
+  fields:
+    config_entry_id:
+      required: false
+      example: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+      selector:
+        config_entry:
+          integration: omada_open_api
+    macs:
+      required: false
+      example: '["AA-BB-CC-DD-EE-FF"]'
+      selector:
+        text:
+          multiple: true
+    all_connected:
+      required: false
+      default: false
+      selector:
+        boolean:
+
+untrack_clients:
+  fields:
+    config_entry_id:
+      required: false
+      example: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+      selector:
+        config_entry:
+          integration: omada_open_api
+    macs:
+      required: true
+      example: '["AA-BB-CC-DD-EE-FF"]'
+      selector:
+        text:
+          multiple: true

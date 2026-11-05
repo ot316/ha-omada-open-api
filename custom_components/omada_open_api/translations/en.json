@@ -776,6 +776,12 @@
         },
         "config_entry_not_loaded": {
             "message": "Config entry {config_entry_id} is not loaded. Check the integration's status and try again."
+        },
+        "invalid_mac": {
+            "message": "{mac} is not a MAC address."
+        },
+        "no_clients_given": {
+            "message": "Give at least one MAC address, or set all_connected."
         }
     },
     "issues": {
@@ -796,6 +802,38 @@
                 "config_entry_id": {
                     "name": "Config entry ID",
                     "description": "Omada config entry to inspect. If omitted, the first loaded Omada integration is used."
+                }
+            }
+        },
+        "track_clients": {
+            "name": "Track clients",
+            "description": "Adds clients to the tracked clients, as ticking them in the integration's options would, and reloads the integration if anything changed.",
+            "fields": {
+                "config_entry_id": {
+                    "name": "Config entry ID",
+                    "description": "Omada config entry to change. If omitted, the first loaded Omada integration is used."
+                },
+                "macs": {
+                    "name": "MAC addresses",
+                    "description": "Clients to track, e.g. AA-BB-CC-DD-EE-FF or aa:bb:cc:dd:ee:ff."
+                },
+                "all_connected": {
+                    "name": "All connected clients",
+                    "description": "Also track every client that is connected now and isn't tracked yet."
+                }
+            }
+        },
+        "untrack_clients": {
+            "name": "Untrack clients",
+            "description": "Removes clients from the tracked clients (their devices and entities are removed) and reloads the integration if anything changed.",
+            "fields": {
+                "config_entry_id": {
+                    "name": "Config entry ID",
+                    "description": "Omada config entry to change. If omitted, the first loaded Omada integration is used."
+                },
+                "macs": {
+                    "name": "MAC addresses",
+                    "description": "Clients to stop tracking."
                 }
             }
         }
