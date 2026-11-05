@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.components.switch.const import SwitchDeviceClass
-from homeassistant.const import EntityCategory
+from homeassistant.const import STATE_OFF, EntityCategory
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .api import OmadaApiError
 from .const import DOMAIN, POE_PORT_PATCH_FALLBACK_ERRORS
@@ -354,11 +355,19 @@ class OmadaPoeSwitch(
 class OmadaClientBlockSwitch(
     OmadaEntity[OmadaClientCoordinator],
     SwitchEntity,
+    RestoreEntity,
 ):
     """Switch entity to block/unblock a client.
 
     When the switch is ON the client is allowed (not blocked).
     When the switch is OFF the client is blocked.
+
+    Controllers that only offer the v1 clients endpoint (no v2, e.g. 5.15)
+    list online clients only, so a blocked client disappears from the
+    coordinator data. The switch remembers a block it made or last saw on the
+    controller (and restores it after a restart) and stays available and off
+    while the client is hidden, so it can still be unblocked. A client that is
+    missing without a known block is offline and the switch is unavailable.
     """
 
     _attr_device_class = SwitchDeviceClass.SWITCH
@@ -377,6 +386,7 @@ class OmadaClientBlockSwitch(
             client_data.get("name") or client_data.get("host_name") or client_mac
         )
 
+        self._known_blocked = bool(client_data.get("blocked", False))
         self._attr_translation_key = "network_access"
         self._attr_unique_id = f"{DOMAIN}_{client_mac}_block"
         self._attr_device_info = DeviceInfo(
@@ -388,12 +398,28 @@ class OmadaClientBlockSwitch(
     # State
     # ------------------------------------------------------------------
 
+    async def async_added_to_hass(self) -> None:
+        """Restore a block the controller no longer reports after a restart."""
+        await super().async_added_to_hass()
+        if self.coordinator.data.get(self._client_mac) is not None:
+            return
+        if (last_state := await self.async_get_last_state()) is not None:
+            self._known_blocked = last_state.state == STATE_OFF
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Remember the block state whenever the controller lists the client."""
+        client = self.coordinator.data.get(self._client_mac)
+        if client is not None:
+            self._known_blocked = bool(client.get("blocked", False))
+        super()._handle_coordinator_update()
+
     @property
     def is_on(self) -> bool | None:
         """Return True if client is NOT blocked (has network access)."""
         client = self.coordinator.data.get(self._client_mac)
         if client is None:
-            return None
+            return False if self._known_blocked else None
         # Inverted: is_on = not blocked.
         return not client.get("blocked", False)
 
@@ -402,7 +428,11 @@ class OmadaClientBlockSwitch(
         """Return if entity is available."""
         if not self.coordinator.last_update_success:
             return False
-        return self.coordinator.data.get(self._client_mac) is not None
+        if self.coordinator.data.get(self._client_mac) is not None:
+            return True
+        # A blocked client is hidden by controllers that only list online
+        # clients; keep the switch usable so it can be unblocked.
+        return self._known_blocked
 
     # ------------------------------------------------------------------
     # Control
@@ -420,6 +450,7 @@ class OmadaClientBlockSwitch(
                 translation_key="client_unblock_failed",
                 translation_placeholders={"mac": self._client_mac},
             ) from err
+        self._known_blocked = False
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -434,6 +465,7 @@ class OmadaClientBlockSwitch(
                 translation_key="client_block_failed",
                 translation_placeholders={"mac": self._client_mac},
             ) from err
+        self._known_blocked = True
         await self.coordinator.async_request_refresh()
 
 

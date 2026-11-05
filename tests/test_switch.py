@@ -10,6 +10,7 @@ import pytest
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.omada_open_api.api import OmadaApiError
@@ -638,6 +639,129 @@ async def test_block_switch_device_info(hass: HomeAssistant) -> None:
     info = switch.device_info
     assert info is not None
     assert info["identifiers"] == {("omada_open_api", WIRELESS_MAC)}
+
+
+async def test_block_switch_stays_controllable_after_blocking(
+    hass: HomeAssistant,
+) -> None:
+    """A client blocked from HA stays available (off) once the controller drops it.
+
+    Controllers on the v1 clients endpoint (no v2, e.g. 5.15) only list
+    online clients, so a blocked client vanishes from the coordinator data.
+    The switch must still be available so the client can be unblocked.
+    """
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
+    switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
+
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        patch.object(switch, "async_write_ha_state"),
+    ):
+        await switch.async_turn_off()
+
+    coordinator.data = {}
+    assert switch.available is True
+    assert switch.is_on is False
+
+
+async def test_block_switch_remembers_block_seen_on_controller(
+    hass: HomeAssistant,
+) -> None:
+    """A client the controller reported as blocked stays off when it disappears."""
+    raw = dict(SAMPLE_CLIENT_WIRELESS)
+    raw["blocked"] = True
+    coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: process_client(raw)})
+    switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
+
+    with patch.object(switch, "async_write_ha_state"):
+        switch._handle_coordinator_update()
+        coordinator.data = {}
+        switch._handle_coordinator_update()
+
+    assert switch.available is True
+    assert switch.is_on is False
+
+
+async def test_block_switch_unblock_hidden_client(hass: HomeAssistant) -> None:
+    """Unblocking a hidden blocked client calls the API and forgets the block."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
+    switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
+
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        patch.object(switch, "async_write_ha_state"),
+    ):
+        await switch.async_turn_off()
+        coordinator.data = {}
+        await switch.async_turn_on()
+
+    coordinator.api_client.unblock_client.assert_called_once_with(
+        TEST_SITE_ID, WIRELESS_MAC
+    )
+    # Unblocked and still offline: unavailable again, like any offline client.
+    assert switch.available is False
+    assert switch.is_on is None
+
+
+async def test_block_switch_turn_off_api_error_keeps_unblocked(
+    hass: HomeAssistant,
+) -> None:
+    """A failed block doesn't make a vanished client look blocked."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
+    switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
+    coordinator.api_client.block_client.side_effect = OmadaApiError("fail")
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_off()
+    coordinator.data = {}
+    assert switch.available is False
+
+
+@pytest.mark.parametrize(
+    ("last_state", "expected_available", "expected_is_on"),
+    [("off", True, False), ("on", False, None), ("unavailable", False, None)],
+)
+async def test_block_switch_restores_block_after_restart(
+    hass: HomeAssistant,
+    last_state: str,
+    expected_available: bool,
+    expected_is_on: bool | None,
+) -> None:
+    """After a restart a hidden client last seen blocked is still shown blocked."""
+    switch = _create_block_switch(hass, WIRELESS_MAC, {})
+    switch.hass = hass
+    switch.entity_id = "switch.client_network_access"
+
+    with patch.object(
+        switch,
+        "async_get_last_state",
+        new=AsyncMock(return_value=State(switch.entity_id, last_state)),
+    ):
+        await switch.async_added_to_hass()
+
+    assert switch.available is expected_available
+    assert switch.is_on is expected_is_on
+
+
+async def test_block_switch_restore_ignored_when_client_listed(
+    hass: HomeAssistant,
+) -> None:
+    """Live controller data wins over a restored state."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    switch.hass = hass
+    switch.entity_id = "switch.client_network_access"
+
+    with patch.object(
+        switch,
+        "async_get_last_state",
+        new=AsyncMock(return_value=State(switch.entity_id, "off")),
+    ):
+        await switch.async_added_to_hass()
+
+    assert switch.is_on is True
 
 
 # ===========================================================================
