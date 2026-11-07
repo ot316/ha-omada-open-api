@@ -1295,6 +1295,11 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Public so device_tracker.py can read without pylint protected-access.
         self.last_seen: dict[str, dt.datetime] = {}
 
+        # Normalized MACs the controller listed as blocked on the last poll,
+        # or None when that list couldn't be fetched (block switches then keep
+        # the block they remember).
+        self.blocked_macs: set[str] | None = None
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch client data from API.
 
@@ -1355,7 +1360,12 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug(
                 "Could not fetch blocked clients for site %s: %s", self.site_id, err
             )
+            self.blocked_macs = None
             return
+
+        self.blocked_macs = {
+            normalize_client_mac(row["mac"]) for row in blocked_rows if row.get("mac")
+        }
 
         selected = {normalize_client_mac(mac): mac for mac in self.selected_client_macs}
         for row in blocked_rows:

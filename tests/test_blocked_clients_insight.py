@@ -191,3 +191,78 @@ async def test_blocked_list_timeout_keeps_client_data(
 
     assert coordinator.last_update_success is True
     assert "11-22-33-44-55-AA" in coordinator.data
+
+
+async def test_coordinator_keeps_the_blocked_mac_set(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """The coordinator remembers which MACs the controller lists as blocked."""
+    mock_api_client.get_blocked_clients = AsyncMock(return_value=[BLOCKED_ROW])
+    coordinator = _coordinator(hass, mock_api_client, ["11-22-33-44-55-AA"])
+
+    await coordinator.async_refresh()
+
+    assert coordinator.blocked_macs == {"E02BE996122F"}
+
+
+async def test_coordinator_blocked_mac_set_unknown_after_failure(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """A failed blocked list leaves the blocked set unknown (None)."""
+    mock_api_client.get_blocked_clients = AsyncMock(side_effect=TimeoutError)
+    coordinator = _coordinator(hass, mock_api_client, ["11-22-33-44-55-AA"])
+
+    await coordinator.async_refresh()
+
+    assert coordinator.blocked_macs is None
+
+
+async def test_switch_follows_an_unblock_made_outside_home_assistant(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Unblocked in Omada while offline: the switch stops showing it blocked.
+
+    The remembered block must give way to the controller's blocked list, or a
+    client unblocked in the Omada app stays 'off' in Home Assistant.
+    """
+    mock_api_client.get_clients = AsyncMock(
+        return_value={"data": [], "totalRows": 0, "currentPage": 1}
+    )
+    mock_api_client.get_blocked_clients = AsyncMock(return_value=[BLOCKED_ROW])
+    coordinator = _coordinator(hass, mock_api_client, ["E0-2B-E9-96-12-2F"])
+    await coordinator.async_refresh()
+    switch = OmadaClientBlockSwitch(coordinator, "E0-2B-E9-96-12-2F")
+    switch.hass = hass
+    switch.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+    switch._handle_coordinator_update()
+    assert switch.is_on is False
+
+    mock_api_client.get_blocked_clients = AsyncMock(return_value=[])
+    await coordinator.async_refresh()
+    switch._handle_coordinator_update()
+
+    assert switch.available is False
+    assert switch.is_on is None
+
+
+async def test_switch_keeps_remembered_block_when_blocked_list_fails(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Without a blocked list the remembered block still keeps it usable."""
+    mock_api_client.get_clients = AsyncMock(
+        return_value={"data": [], "totalRows": 0, "currentPage": 1}
+    )
+    mock_api_client.get_blocked_clients = AsyncMock(return_value=[BLOCKED_ROW])
+    coordinator = _coordinator(hass, mock_api_client, ["E0-2B-E9-96-12-2F"])
+    await coordinator.async_refresh()
+    switch = OmadaClientBlockSwitch(coordinator, "E0-2B-E9-96-12-2F")
+    switch.hass = hass
+    switch.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+    switch._handle_coordinator_update()
+
+    mock_api_client.get_blocked_clients = AsyncMock(side_effect=TimeoutError)
+    await coordinator.async_refresh()
+    switch._handle_coordinator_update()
+
+    assert switch.available is True
+    assert switch.is_on is False

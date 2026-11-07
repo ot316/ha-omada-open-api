@@ -14,6 +14,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .api import OmadaApiError
+from .clients import normalize_client_mac
 from .const import DOMAIN, POE_PORT_PATCH_FALLBACK_ERRORS
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .entity import OmadaEntity
@@ -408,10 +409,18 @@ class OmadaClientBlockSwitch(
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Remember the block state whenever the controller lists the client."""
+        """Track the block state from the controller.
+
+        A listed client carries its own block state. For one the controller
+        no longer lists, its blocked list decides when it was fetched, so an
+        unblock made outside Home Assistant (e.g. in the Omada app) shows up;
+        otherwise the remembered block stands.
+        """
         client = self.coordinator.data.get(self._client_mac)
         if client is not None:
             self._known_blocked = bool(client.get("blocked", False))
+        elif (blocked := self.coordinator.blocked_macs) is not None:
+            self._known_blocked = normalize_client_mac(self._client_mac) in blocked
         super()._handle_coordinator_update()
 
     @property
