@@ -82,6 +82,7 @@ def _patch_api_client(**overrides):
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
     mock_instance.get_client_app_traffic = AsyncMock(return_value=[])
+    mock_instance.get_blocked_clients = AsyncMock(return_value=[])
     mock_instance.get_switch_ports_poe = AsyncMock(return_value=[])
     mock_instance.get_poe_usage = AsyncMock(return_value=[])
     mock_instance.get_device_client_stats = AsyncMock(return_value=[])

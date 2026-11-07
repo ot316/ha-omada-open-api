@@ -309,6 +309,40 @@ class OmadaApiClient:
         result = await self._authenticated_request("get", url, params=params)
         return result["result"]  # type: ignore[no-any-return]
 
+    async def get_blocked_clients(
+        self, site_id: str, page_size: int = 1000
+    ) -> list[dict[str, Any]]:
+        """Get every blocked client of a site, online or not.
+
+        The v1 clients endpoint lists online clients only and never reports
+        a block, so blocked clients come from ``insight/clients`` with the
+        block filter, whose rows carry ``mac``, ``name``, ``block`` and
+        ``lastSeen``.
+
+        Args:
+            site_id: Site ID to get blocked clients for
+            page_size: Number of rows per page (1-1000)
+
+        Returns:
+            List of blocked client rows from all pages
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/insight/clients"
+        )
+        rows: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            params = {"page": page, "pageSize": page_size, "filters.block": "true"}
+            result = await self._authenticated_request("get", url, params=params)
+            data = result["result"].get("data") or []
+            rows.extend(data)
+            total = int(result["result"].get("totalRows", 0))
+            if not data or len(rows) >= total:
+                return rows
+            page += 1
+
     async def get_applications(
         self, site_id: str, page: int = 1, page_size: int = 1000
     ) -> dict[str, Any]:

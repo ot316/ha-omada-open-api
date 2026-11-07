@@ -1337,7 +1337,37 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
 
+        await self._merge_blocked_clients(clients_by_mac)
         return clients_by_mac
+
+    async def _merge_blocked_clients(self, clients_by_mac: dict[str, Any]) -> None:
+        """Mark tracked clients the controller lists as blocked.
+
+        Controllers with only the v1 clients endpoint list online clients and
+        never report a block, so a blocked client vanishes from the client
+        list. The blocked list keeps it in the data (blocked, inactive) so its
+        switch stays available and can unblock it. A failure here is not
+        fatal: the client list is still returned.
+        """
+        try:
+            blocked_rows = await self.api_client.get_blocked_clients(self.site_id)
+        except (OmadaApiError, TimeoutError) as err:
+            _LOGGER.debug(
+                "Could not fetch blocked clients for site %s: %s", self.site_id, err
+            )
+            return
+
+        selected = {normalize_client_mac(mac): mac for mac in self.selected_client_macs}
+        for row in blocked_rows:
+            mac = selected.get(normalize_client_mac(row.get("mac") or ""))
+            if mac is None:
+                continue
+            if mac in clients_by_mac:
+                clients_by_mac[mac]["blocked"] = True
+            else:
+                clients_by_mac[mac] = process_client(
+                    {**row, "mac": mac, "blocked": True, "active": False}
+                )
 
 
 class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):

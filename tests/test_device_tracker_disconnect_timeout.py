@@ -196,6 +196,7 @@ async def test_coordinator_updates_last_seen_on_data_fetch(hass: HomeAssistant) 
     """Coordinator updates _last_seen timestamps for active clients on each update."""
 
     mock_api = MagicMock()
+    mock_api.get_blocked_clients = AsyncMock(return_value=[])
     mock_api.get_clients = AsyncMock(
         return_value={
             "data": [
